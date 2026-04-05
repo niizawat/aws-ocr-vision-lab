@@ -10,7 +10,7 @@ import boto3
 from botocore.config import Config
 
 BUCKET_NAME = os.environ.get('BUCKET_NAME')
-REGION = os.environ.get('REGION', 'ap-northeast-2')
+REGION = os.environ.get('REGION') or os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 
 s3_client = boto3.client(
@@ -29,9 +29,14 @@ def handler(event, context):
         filename = body.get('filename', 'upload')
         content_type = body.get('content_type', 'application/octet-stream')
 
-        # Generate unique key
-        upload_id = str(uuid.uuid4())
-        s3_key = f"uploads/{upload_id}/{filename}"
+        # Get user ID from Cognito claims
+        authorizer = event.get('requestContext', {}).get('authorizer', {})
+        claims = authorizer.get('claims', {})
+        user_id = claims.get('sub', 'anonymous')
+
+        # Generate job_id upfront so file goes directly into job folder
+        job_id = str(uuid.uuid4())
+        s3_key = f"{user_id}/{job_id}/input/{filename}"
 
         # Generate presigned URL for PUT
         presigned_url = s3_client.generate_presigned_url(
@@ -54,7 +59,7 @@ def handler(event, context):
             'body': json.dumps({
                 'upload_url': presigned_url,
                 's3_key': s3_key,
-                'upload_id': upload_id,
+                'job_id': job_id,
             })
         }
 
@@ -66,5 +71,5 @@ def handler(event, context):
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*',
             },
-            'body': json.dumps({'error': str(e)})
+            'body': json.dumps({'error': 'Internal server error'})
         }

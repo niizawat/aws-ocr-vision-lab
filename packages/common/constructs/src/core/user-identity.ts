@@ -19,6 +19,14 @@ import { Distribution } from 'aws-cdk-lib/aws-cloudfront';
 import { suppressRules } from './checkov.js';
 
 const WEB_CLIENT_ID = 'WebClient';
+
+export interface UserIdentityProps {
+  /**
+   * Additional callback/logout URLs (e.g. CloudFront domains from other stacks)
+   */
+  additionalCallbackUrls?: string[];
+}
+
 /**
  * Creates a UserPool and Identity Pool with sane defaults configured intended for usage from a web client.
  */
@@ -29,9 +37,12 @@ export class UserIdentity extends Construct {
   public readonly userPoolClient: UserPoolClient;
   public readonly userPoolDomain: UserPoolDomain;
 
-  constructor(scope: Construct, id: string) {
+  private readonly additionalCallbackUrls: string[];
+
+  constructor(scope: Construct, id: string, props?: UserIdentityProps) {
     super(scope, id);
 
+    this.additionalCallbackUrls = props?.additionalCallbackUrls ?? [];
     this.region = Stack.of(this).region;
     this.userPool = this.createUserPool();
     this.userPoolDomain = this.createUserPoolDomain(this.userPool);
@@ -111,11 +122,13 @@ export class UserIdentity extends Construct {
           'http://localhost:4200',
           'http://localhost:4300',
           `https://${Stack.of(this).region}.console.aws.amazon.com`,
-        ].concat(
-          this.findCloudFrontDistributions().map(
-            (d) => `https://${d.domainName}`,
-          ),
-        ),
+        ]
+          .concat(
+            this.findCloudFrontDistributions().map(
+              (d) => `https://${d.domainName}`,
+            ),
+          )
+          .concat(this.additionalCallbackUrls),
     });
 
     return userPool.addClient(WEB_CLIENT_ID, {

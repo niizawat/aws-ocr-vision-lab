@@ -368,8 +368,8 @@ export interface OcrJob {
   s3Key?: string; // S3 key for the uploaded image
   imageAvailable?: boolean; // Whether the image is available in S3
   processingTimeMs?: number; // Time taken to process in milliseconds
-  editedDocumentHtml?: string; // User-edited document HTML
-  editedMarkdown?: string; // User-edited markdown content
+  editedDocumentHtml?: Record<number, string>; // User-edited document HTML per page
+  editedMarkdown?: Record<number, string>; // User-edited markdown content per page
 }
 
 // View types for result display

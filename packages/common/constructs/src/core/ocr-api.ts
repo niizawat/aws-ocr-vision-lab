@@ -8,7 +8,8 @@ import {
   GatewayResponse,
   ResponseType,
 } from 'aws-cdk-lib/aws-apigateway';
-import { Function, Runtime, Architecture, Code } from 'aws-cdk-lib/aws-lambda';
+import { Function, Runtime, Architecture, Code, LayerVersion } from 'aws-cdk-lib/aws-lambda';
+import * as path from 'path';
 import { UserPool } from 'aws-cdk-lib/aws-cognito';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
@@ -41,6 +42,23 @@ export class OcrApi extends Construct {
       authorizerName: 'CognitoAuthorizer',
     });
 
+    // DuckDB Lambda Layer for job metadata management
+    const duckdbLayer = new LayerVersion(this, 'DuckDBLayer', {
+      code: Code.fromAsset(path.join(props.lambdaCodePath, '..', 'layers', 'duckdb'), {
+        bundling: {
+          image: Runtime.PYTHON_3_14.bundlingImage,
+          command: [
+            'bash',
+            '-c',
+            'pip install duckdb -t /asset-output/python',
+          ],
+        },
+      }),
+      compatibleRuntimes: [Runtime.PYTHON_3_14],
+      compatibleArchitectures: [Architecture.ARM_64],
+      description: 'DuckDB for job metadata management',
+    });
+
     // Presigned URL Lambda (Python) - for large file uploads
     this.presignedUrlLambda = new Function(this, 'PresignedUrlLambda', {
       runtime: Runtime.PYTHON_3_14,
@@ -63,6 +81,7 @@ export class OcrApi extends Construct {
       timeout: Duration.seconds(30),
       memorySize: 256,
       architecture: Architecture.ARM_64,
+      layers: [duckdbLayer],
       environment: {
         BUCKET_NAME: props.bucket.bucketName,
         ENDPOINT_NAME: props.endpointName,
@@ -78,6 +97,7 @@ export class OcrApi extends Construct {
       timeout: Duration.seconds(10),
       memorySize: 256,
       architecture: Architecture.ARM_64,
+      layers: [duckdbLayer],
       environment: {
         BUCKET_NAME: props.bucket.bucketName,
         REGION: region,
@@ -92,6 +112,7 @@ export class OcrApi extends Construct {
       timeout: Duration.seconds(30),
       memorySize: 128,
       architecture: Architecture.ARM_64,
+      layers: [duckdbLayer],
       environment: {
         BUCKET_NAME: props.bucket.bucketName,
         REGION: region,
@@ -106,6 +127,7 @@ export class OcrApi extends Construct {
       timeout: Duration.seconds(30),
       memorySize: 256,
       architecture: Architecture.ARM_64,
+      layers: [duckdbLayer],
       environment: {
         BUCKET_NAME: props.bucket.bucketName,
         REGION: region,
@@ -114,17 +136,17 @@ export class OcrApi extends Construct {
 
     // Grant S3 permissions
     props.bucket.grantReadWrite(this.requestLambda);
-    props.bucket.grantRead(this.statusLambda);
+    props.bucket.grantReadWrite(this.statusLambda);
     props.bucket.grantPut(this.presignedUrlLambda);
     props.bucket.grantReadWrite(this.imageManagerLambda); // Read for presigned URLs, Delete for cleanup
-    props.bucket.grantRead(this.jobListLambda); // Read result.json files for job listing
+    props.bucket.grantReadWrite(this.jobListLambda); // Read/write parquet for job listing
 
-    // Grant SageMaker permissions (wildcard for initial deployment)
+    // Grant SageMaker permissions
     this.requestLambda.addToRolePolicy(
       new PolicyStatement({
         actions: ['sagemaker:InvokeEndpointAsync'],
         resources: [
-          `arn:aws:sagemaker:${region}:${Stack.of(this).account}:endpoint/*`,
+          `arn:aws:sagemaker:${region}:${Stack.of(this).account}:endpoint/${props.endpointName}`,
         ],
       }),
     );

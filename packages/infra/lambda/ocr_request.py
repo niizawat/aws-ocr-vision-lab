@@ -5,8 +5,9 @@ import uuid
 import base64
 import boto3
 from botocore.exceptions import ClientError
+import db_utils
 
-REGION = os.environ.get("REGION", "ap-northeast-2")
+REGION = os.environ.get("REGION") or os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 BUCKET_NAME = os.environ["BUCKET_NAME"]
 ENDPOINT_NAME = os.environ["ENDPOINT_NAME"]
 
@@ -48,6 +49,7 @@ def handler(event, context):
         body = json.loads(event["body"])
         image_base64 = body.get("image_base64")
         s3_key = body.get("s3_key")  # For large file uploads via presigned URL
+        presigned_job_id = body.get("job_id")  # job_id from presigned URL response
         filename = body.get("filename")
         model = body.get("model", "paddleocr-vl")
         options = body.get("options", {})
@@ -65,17 +67,23 @@ def handler(event, context):
         claims = authorizer.get("claims", {})
         user_id = claims.get("sub", "anonymous")
 
-        job_id = str(uuid.uuid4())
-        output_key = f"output/{user_id}/{job_id}/result.json"
-
-        # Determine input key based on upload method
+        # Determine input key and job_id based on upload method
         if s3_key:
-            # File was uploaded via presigned URL - use existing S3 key
+            # Validate s3_key belongs to this user's job folder
+            if not s3_key.startswith(f"{user_id}/"):
+                return {
+                    "statusCode": 403,
+                    "headers": {"Content-Type": "application/json", **CORS_HEADERS},
+                    "body": json.dumps({"error": "Invalid s3_key"}),
+                }
+            # Use job_id from presigned URL response
+            job_id = presigned_job_id or str(uuid.uuid4())
             input_key = s3_key
             print(f"Using pre-uploaded file: s3://{BUCKET_NAME}/{input_key}")
         else:
             # File sent as base64 - decode and upload
-            input_key = f"input/{user_id}/{job_id}/{filename}"
+            job_id = str(uuid.uuid4())
+            input_key = f"{user_id}/{job_id}/input/{filename}"
             image_buffer = base64.b64decode(image_base64)
 
             s3.put_object(
@@ -86,6 +94,8 @@ def handler(event, context):
             )
             print(f"Image uploaded to s3://{BUCKET_NAME}/{input_key}")
 
+        output_key = f"{user_id}/{job_id}/output/result.json"
+
         # Prepare SageMaker input with model selection and metadata
         from datetime import datetime
         sagemaker_input = json.dumps({
@@ -93,7 +103,6 @@ def handler(event, context):
             "output_key": output_key,
             "model": model,
             "model_options": options,
-            # Metadata for job listing
             "metadata": {
                 "job_id": job_id,
                 "filename": filename,
@@ -103,7 +112,7 @@ def handler(event, context):
         })
 
         # Upload inference input to S3
-        inference_input_key = f"input/{user_id}/{job_id}/inference-input.json"
+        inference_input_key = f"{user_id}/{job_id}/input/inference-input.json"
         s3.put_object(
             Bucket=BUCKET_NAME,
             Key=inference_input_key,
@@ -119,6 +128,9 @@ def handler(event, context):
         )
 
         print(f"SageMaker invocation response: {invoke_response}")
+
+        # Record job in DuckDB metadata
+        db_utils.add_job(user_id, job_id, filename, input_key, model, options)
 
         return {
             "statusCode": 200,
@@ -139,6 +151,5 @@ def handler(event, context):
             "headers": {"Content-Type": "application/json", **CORS_HEADERS},
             "body": json.dumps({
                 "error": "Internal server error",
-                "message": str(e),
             }),
         }

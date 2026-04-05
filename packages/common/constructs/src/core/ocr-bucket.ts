@@ -55,23 +55,7 @@ export class OcrBucket extends Construct {
       serverAccessLogsPrefix: 'ocr-bucket-logs/',
       removalPolicy,
       autoDeleteObjects: autoDelete,
-      lifecycleRules: [
-        {
-          id: 'DeleteInputAfter7Days',
-          prefix: 'input/',
-          expiration: Duration.days(7),
-        },
-        {
-          id: 'DeleteUploadsAfter30Days',
-          prefix: 'uploads/',
-          expiration: Duration.days(30),
-        },
-        {
-          id: 'DeleteOutputAfter30Days',
-          prefix: 'output/',
-          expiration: Duration.days(30),
-        },
-      ],
+      lifecycleRules: [],
       cors: [
         {
           allowedHeaders: ['*'],

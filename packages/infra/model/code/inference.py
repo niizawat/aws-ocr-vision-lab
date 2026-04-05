@@ -10,6 +10,7 @@ and register it in MODEL_REGISTRY.
 """
 import os
 import json
+import html
 import tempfile
 import logging
 from abc import ABC, abstractmethod
@@ -71,14 +72,15 @@ class BaseOCRModel(ABC):
                         else:
                             output["content"] += f"{block_content}\n\n"
                     elif output_format == "html":
+                        safe_content = html.escape(block_content)
                         if block_label == "doc_title":
-                            output["content"] += f"<h1>{block_content}</h1>\n"
+                            output["content"] += f"<h1>{safe_content}</h1>\n"
                         elif block_label == "paragraph_title":
-                            output["content"] += f"<h2>{block_content}</h2>\n"
+                            output["content"] += f"<h2>{safe_content}</h2>\n"
                         elif block_label == "table":
-                            output["content"] += f"{block_content}\n"
+                            output["content"] += f"{safe_content}\n"
                         else:
-                            output["content"] += f"<p>{block_content}</p>\n"
+                            output["content"] += f"<p>{safe_content}</p>\n"
 
         return output
 
@@ -261,7 +263,7 @@ def model_fn(model_dir):
     """Initialize S3 client. Models are loaded lazily on first use."""
     global s3_client
     logger.info("Initializing OCR service...")
-    s3_client = boto3.client("s3", region_name="ap-northeast-2")
+    s3_client = boto3.client("s3")
     logger.info("OCR service initialized. Models will be loaded on demand.")
     return {"initialized": True}
 
@@ -296,6 +298,7 @@ def predict_fn(input_data, _):
 
     # Download image to temp file
     suffix = os.path.splitext(key)[1] or ".jpg"
+    tmp_path = None
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         s3_client.download_file(bucket, key, tmp.name)
         tmp_path = tmp.name
@@ -329,7 +332,7 @@ def predict_fn(input_data, _):
         logger.error(f"Prediction error: {str(e)}")
         error_output = {"success": False, "error": str(e), "model": model_name}
         if output_key:
-            error_key = output_key.replace("output/", "failure/").replace("result.json", "error.json")
+            error_key = output_key.replace("result.json", "error.json")
             s3_client.put_object(
                 Bucket=bucket,
                 Key=error_key,
@@ -339,7 +342,7 @@ def predict_fn(input_data, _):
         raise
 
     finally:
-        if os.path.exists(tmp_path):
+        if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
 
