@@ -1,0 +1,77 @@
+[tools]
+node = "22"
+pnpm = "10"
+python = "3.12"
+"npm:aws-cdk" = "2.1033.0"
+
+[env]
+_.file = ".env.local"
+NODE_OPTIONS = "--max-old-space-size=8192"
+_.path = ["./node_modules/.bin"]
+
+[tasks.setup]
+description = "Create .env.local configuration"
+run = """
+#!/usr/bin/env bash
+if [ -f .env.local ]; then
+  echo "Current .env.local:"
+  cat .env.local
+  echo ""
+  read -p "Overwrite? (y/N): " overwrite
+  [[ "$overwrite" =~ ^[yY]$ ]] || exit 0
+fi
+
+# AWS Profile
+profiles=$(aws configure list-profiles 2>/dev/null)
+if [ -n "$profiles" ] && command -v fzf &>/dev/null; then
+  echo "Select AWS profile:"
+  profile=$(echo "$profiles" | fzf --prompt="AWS_PROFILE: ")
+else
+  read -p "AWS_PROFILE [default]: " profile
+  profile=${profile:-default}
+fi
+
+# AWS Region
+regions="ap-northeast-2\nus-east-1\nus-west-2\nap-northeast-1\neu-west-1"
+if command -v fzf &>/dev/null; then
+  region=$(echo -e "$regions" | fzf --prompt="AWS_REGION: ")
+else
+  read -p "AWS_REGION [ap-northeast-2]: " region
+  region=${region:-ap-northeast-2}
+fi
+
+cat > .env.local << EOF
+AWS_REGION=$region
+AWS_PROFILE=$profile
+EOF
+
+echo ""
+echo "Created .env.local:"
+cat .env.local
+"""
+
+[tasks.deploy]
+description = "Deploy all CDK stacks"
+run = """
+pnpm install
+pnpm nx run @aws-ocr-vision-lab/common-constructs:compile
+pnpm nx run @aws-ocr-vision-lab/frontend:bundle:production
+pnpm nx run @aws-ocr-vision-lab/infra:deploy --output-style=stream -- --all
+"""
+
+[tasks."deploy:stack"]
+description = "Deploy a specific CDK stack (fzf)"
+run = """
+pnpm install
+pnpm nx run @aws-ocr-vision-lab/common-constructs:compile
+pnpm nx run @aws-ocr-vision-lab/frontend:bundle:production
+stack=$(echo "PaddleOCR-Infra\nPaddleOCR-Model\nPaddleOCR-Identity\nPaddleOCR-Endpoint\nPaddleOCR-Api\nPaddleOCR-Frontend" | fzf --prompt="Select stack: ")
+pnpm nx run @aws-ocr-vision-lab/infra:deploy $stack --output-style=stream
+"""
+
+[tasks.dev]
+description = "Run frontend dev server"
+run = """
+pnpm install
+pnpm nx run @aws-ocr-vision-lab/frontend:serve
+"""

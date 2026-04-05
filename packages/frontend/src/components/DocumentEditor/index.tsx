@@ -25,6 +25,14 @@ const ResizableImage: React.FC<NodeViewProps> = ({
   const imageRef = useRef<HTMLImageElement>(null);
   const startX = useRef(0);
   const startWidth = useRef(0);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Cleanup event listeners on unmount
+  useEffect(() => {
+    return () => {
+      cleanupRef.current?.();
+    };
+  }, []);
 
   const { src, alt, width, alignment, caption } = node.attrs;
 
@@ -43,14 +51,16 @@ const ResizableImage: React.FC<NodeViewProps> = ({
       updateAttributes({ width: newWidth });
     };
 
-    const handleMouseUp = () => {
+    const cleanup = () => {
       setIsResizing(false);
       document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mouseup', cleanup);
+      cleanupRef.current = null;
     };
 
+    cleanupRef.current = cleanup;
     document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseup', cleanup);
   };
 
   const handleAlignmentChange = (newAlignment: string) => {

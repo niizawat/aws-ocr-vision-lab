@@ -1,28 +1,48 @@
 #!/bin/bash
-# Fetch runtime config from deployed CloudFormation stack
+# Fetch runtime config from deployed CloudFormation stacks
 
-STACK_NAME="${STACK_NAME:-PaddleOCR-Application}"
-AWS_PROFILE="${AWS_PROFILE:-idp}"
+IDENTITY_STACK="${IDENTITY_STACK:-PaddleOCR-Identity}"
+API_STACK="${API_STACK:-PaddleOCR-Api}"
+AWS_PROFILE="${AWS_PROFILE:-default}"
 OUTPUT_FILE="$(dirname "$0")/../public/runtime-config.json"
 
-echo "Fetching runtime config from stack: $STACK_NAME"
+echo "Fetching runtime config..."
 
-# Get outputs from CloudFormation
-OUTPUTS=$(AWS_PROFILE=$AWS_PROFILE aws cloudformation describe-stacks \
-  --stack-name "$STACK_NAME" \
+# Get Identity stack outputs (Cognito)
+IDENTITY_OUTPUTS=$(AWS_PROFILE=$AWS_PROFILE aws cloudformation describe-stacks \
+  --stack-name "$IDENTITY_STACK" \
   --query 'Stacks[0].Outputs' \
   --output json 2>/dev/null)
 
-if [ $? -ne 0 ] || [ -z "$OUTPUTS" ] || [ "$OUTPUTS" = "null" ]; then
+# Get API stack outputs
+API_OUTPUTS=$(AWS_PROFILE=$AWS_PROFILE aws cloudformation describe-stacks \
+  --stack-name "$API_STACK" \
+  --query 'Stacks[0].Outputs' \
+  --output json 2>/dev/null)
+
+# Fallback: try old single stack name
+if [ -z "$IDENTITY_OUTPUTS" ] || [ "$IDENTITY_OUTPUTS" = "null" ]; then
+  echo "Trying legacy stack PaddleOCR-Application..."
+  LEGACY_OUTPUTS=$(AWS_PROFILE=$AWS_PROFILE aws cloudformation describe-stacks \
+    --stack-name "PaddleOCR-Application" \
+    --query 'Stacks[0].Outputs' \
+    --output json 2>/dev/null)
+  IDENTITY_OUTPUTS="$LEGACY_OUTPUTS"
+  API_OUTPUTS="$LEGACY_OUTPUTS"
+fi
+
+if [ -z "$IDENTITY_OUTPUTS" ] || [ "$IDENTITY_OUTPUTS" = "null" ]; then
   echo "Warning: Could not fetch stack outputs. Using existing runtime-config.json if available."
   exit 0
 fi
 
-# Extract values
-USER_POOL_ID=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey | contains("UserPoolId") and (contains("Client") | not)) | .OutputValue' | head -1)
-USER_POOL_CLIENT_ID=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey | contains("UserPoolClientId")) | .OutputValue' | head -1)
-IDENTITY_POOL_ID=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey | contains("IdentityPoolId")) | .OutputValue' | head -1)
-API_URL=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey | contains("ApiUrl")) | .OutputValue' | head -1)
+# Extract Cognito values from Identity stack
+USER_POOL_ID=$(echo "$IDENTITY_OUTPUTS" | jq -r '.[] | select(.OutputKey | contains("UserPoolId") and (contains("Client") | not)) | .OutputValue' | head -1)
+USER_POOL_CLIENT_ID=$(echo "$IDENTITY_OUTPUTS" | jq -r '.[] | select(.OutputKey | contains("UserPoolClientId")) | .OutputValue' | head -1)
+IDENTITY_POOL_ID=$(echo "$IDENTITY_OUTPUTS" | jq -r '.[] | select(.OutputKey | contains("IdentityPoolId")) | .OutputValue' | head -1)
+
+# Extract API URL from API stack
+API_URL=$(echo "$API_OUTPUTS" | jq -r '.[] | select(.OutputKey | contains("ApiUrl")) | .OutputValue' | head -1)
 
 # Get region from user pool ID
 REGION=$(echo "$USER_POOL_ID" | cut -d'_' -f1)

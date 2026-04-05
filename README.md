@@ -91,10 +91,9 @@ OCR Vision Lab is a web-based playground for testing and experimenting with [Pad
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) v18 or later
-- [pnpm](https://pnpm.io/) v8 or later
+- [mise](https://mise.jdx.dev/) (recommended) or manually install:
+  - Node.js v22+, pnpm v10+, Python 3.12+, AWS CDK
 - [AWS CLI](https://aws.amazon.com/cli/) configured with appropriate credentials
-- [AWS CDK](https://aws.amazon.com/cdk/) v2
 
 ### Installation
 
@@ -102,6 +101,9 @@ OCR Vision Lab is a web-based playground for testing and experimenting with [Pad
 # Clone the repository
 git clone https://github.com/yunwoong7/aws-ocr-vision-lab.git
 cd aws-ocr-vision-lab
+
+# Install tools via mise (auto-installs Node, pnpm, Python, CDK)
+mise install
 
 # Install dependencies
 pnpm install
@@ -111,7 +113,7 @@ pnpm install
 
 ```bash
 # Start the frontend development server
-pnpm nx run frontend:serve
+mise run dev
 ```
 
 ---
@@ -142,27 +144,29 @@ chmod +x deploy.sh cleanup.sh
 
 ### Stack Structure
 
-1. **PaddleOCR-Infra**: S3 bucket, ECR repository, CodeBuild project
-2. **PaddleOCR-Model**: Model artifacts (inference.py) uploaded to S3
-3. **PaddleOCR-Application**: Cognito, SageMaker endpoint, API Gateway, Lambda, Frontend
+| Stack | Description |
+|-------|-------------|
+| **PaddleOCR-Infra** | S3 bucket, ECR repository, CodeBuild project |
+| **PaddleOCR-Model** | Model artifacts (inference.py) uploaded to S3 |
+| **PaddleOCR-Identity** | Cognito User Pool and Identity Pool |
+| **PaddleOCR-Endpoint** | SageMaker inference endpoint |
+| **PaddleOCR-Api** | API Gateway + Lambda functions |
+| **PaddleOCR-Frontend** | CloudFront + S3 static website |
 
 ### Manual Deployment (Local)
 
 If you prefer to deploy from your local machine:
 
 ```bash
-# Configure AWS credentials
-aws configure
-
-# Install dependencies
-pnpm install
-
-# Bootstrap CDK (first time only)
-cd packages/infra
-npx cdk bootstrap
+# Create .env.local with your AWS config
+echo "AWS_REGION=ap-northeast-2" > .env.local
+echo "AWS_PROFILE=your-profile" >> .env.local
 
 # Deploy all stacks
-npx cdk deploy --all
+mise run deploy
+
+# Or deploy a specific stack
+mise run deploy:stack
 ```
 
 ### Cost Management
@@ -180,9 +184,11 @@ To stop costs when not in use:
 
 ### Environment Variables
 
+Configure in `.env.local` (auto-loaded by mise):
+
 | Variable | Description |
 |----------|-------------|
-| `AWS_REGION` | AWS region (default: ap-northeast-2) |
+| `AWS_REGION` | AWS region |
 | `AWS_PROFILE` | AWS CLI profile name |
 
 ## Supported Models
@@ -224,32 +230,35 @@ Vision-language model for complex document understanding tasks.
 
 ```
 aws-ocr-vision-lab/
+├── .mise.toml               # Tool versions & tasks (mise)
+├── .env.local                # AWS profile & region (git-ignored)
 ├── packages/
-│   ├── frontend/          # React web application
-│   │   ├── src/
-│   │   │   ├── components/  # React components
-│   │   │   ├── routes/      # Page routes
-│   │   │   └── types/       # TypeScript types
-│   │   └── public/          # Static assets
-│   ├── infra/             # AWS CDK infrastructure
-│   │   ├── src/
-│   │   │   └── stacks/      # CDK stack definitions
-│   │   ├── lambda/          # Lambda function code
-│   │   └── model/           # SageMaker model code
-│   │       └── code/
-│   │           └── inference.py
-│   └── common/            # Shared constructs
-│       └── constructs/
-├── docs/                  # Documentation
+│   ├── frontend/             # React web application
+│   │   └── src/
+│   │       ├── components/
+│   │       │   ├── OcrPage/    # Result viewer components
+│   │       │   ├── AppLayout/  # App shell & sidebar
+│   │       │   └── DocumentEditor/
+│   │       ├── hooks/          # Custom React hooks
+│   │       ├── utils/          # PDF & OCR helper utilities
+│   │       ├── routes/         # Page routes
+│   │       └── types/          # TypeScript types
+│   ├── infra/                # AWS CDK infrastructure
+│   │   ├── src/stacks/         # CDK stack definitions
+│   │   ├── lambda/             # Lambda functions (Python)
+│   │   ├── layers/             # Lambda layers (DuckDB)
+│   │   └── model/code/         # SageMaker inference code
+│   └── common/constructs/   # Shared CDK constructs
+├── docs/                     # Documentation
 └── README.md
 ```
 
 ## Tech Stack
 
 - **Frontend**: React 19, TypeScript, Vite
-- **Backend**: Python (Lambda), PaddleOCR
+- **Backend**: Python 3.14 (Lambda), PaddleOCR, DuckDB
 - **Infrastructure**: AWS CDK (TypeScript)
-- **Build System**: Nx Monorepo
+- **Build System**: Nx Monorepo, mise
 - **AWS Services**: CloudFront, S3, API Gateway, Lambda, SageMaker, Cognito, ECR, CodeBuild
 
 ## License

@@ -30,11 +30,26 @@ You can also automatically fix some lint errors by running the following command
 
 ### Deploy all Stacks
 
-Run `pnpm exec nx deploy @aws-ocr-vision-lab/infra --all`
+```bash
+mise run deploy
+```
 
 ### Deploy a single Stack
 
-Run `pnpm exec nx deploy @aws-ocr-vision-lab/infra [stackName]`
+```bash
+mise run deploy:stack
+```
+
+### Stack Structure
+
+| Stack | Description |
+|-------|-------------|
+| PaddleOCR-Infra | S3, ECR, CodeBuild |
+| PaddleOCR-Model | Model artifacts |
+| PaddleOCR-Identity | Cognito |
+| PaddleOCR-Endpoint | SageMaker |
+| PaddleOCR-Api | API Gateway + Lambda |
+| PaddleOCR-Frontend | CloudFront + S3 |
 
 ### Hotswap deployment
 

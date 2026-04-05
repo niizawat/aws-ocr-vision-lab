@@ -1,17 +1,13 @@
 """
-Lambda function for listing user's OCR jobs from S3.
-Returns job metadata from result.json files.
+Lambda function for listing user's OCR jobs from DuckDB/Parquet metadata.
 """
 
 import json
 import os
-import boto3
-from botocore.exceptions import ClientError
+import db_utils
 
 BUCKET_NAME = os.environ.get('BUCKET_NAME')
-REGION = os.environ.get('REGION', 'ap-northeast-2')
-
-s3_client = boto3.client('s3', region_name=REGION)
+REGION = os.environ.get('REGION') or os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
 
 CORS_HEADERS = {
     'Content-Type': 'application/json',
@@ -32,40 +28,7 @@ def handler(event, context):
         if not user_id:
             return error_response(401, 'Unauthorized')
 
-        # List all result.json files for this user
-        prefix = f"output/{user_id}/"
-        jobs = []
-
-        paginator = s3_client.get_paginator('list_objects_v2')
-        for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=prefix):
-            for obj in page.get('Contents', []):
-                key = obj['Key']
-                # Only process result.json files
-                if key.endswith('/result.json'):
-                    try:
-                        # Get the result.json content
-                        response = s3_client.get_object(Bucket=BUCKET_NAME, Key=key)
-                        result_data = json.loads(response['Body'].read().decode('utf-8'))
-
-                        # Extract metadata
-                        metadata = result_data.get('metadata', {})
-                        if metadata:
-                            job = {
-                                'id': metadata.get('job_id', ''),
-                                'filename': metadata.get('filename', ''),
-                                's3Key': metadata.get('s3_key', ''),
-                                'createdAt': metadata.get('created_at', ''),
-                                'model': result_data.get('model', ''),
-                                'modelOptions': result_data.get('model_options', {}),
-                                'status': 'completed' if result_data.get('success') else 'failed',
-                            }
-                            jobs.append(job)
-                    except Exception as e:
-                        print(f"Error reading {key}: {e}")
-                        continue
-
-        # Sort by createdAt descending (newest first)
-        jobs.sort(key=lambda x: x.get('createdAt', ''), reverse=True)
+        jobs = db_utils.list_jobs(user_id)
 
         return {
             'statusCode': 200,
@@ -78,7 +41,7 @@ def handler(event, context):
 
     except Exception as e:
         print(f"Error listing jobs: {e}")
-        return error_response(500, str(e))
+        return error_response(500, 'Internal server error')
 
 
 def error_response(status_code, message):

@@ -11,9 +11,10 @@ from urllib.parse import unquote
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+import db_utils
 
 BUCKET_NAME = os.environ.get('BUCKET_NAME')
-REGION = os.environ.get('REGION', 'ap-northeast-2')
+REGION = os.environ.get('REGION') or os.environ.get('AWS_DEFAULT_REGION', 'us-east-1')
 
 s3_client = boto3.client(
     's3',
@@ -35,6 +36,13 @@ def handler(event, context):
         return error_response(405, f'Method {http_method} not allowed')
 
 
+def validate_s3_key(s3_key):
+    """Validate s3_key to prevent path traversal."""
+    if '..' in s3_key or s3_key.startswith('/'):
+        return False
+    return True
+
+
 def handle_get(event):
     """Generate presigned URL for reading an image from S3."""
     try:
@@ -47,6 +55,10 @@ def handle_get(event):
 
         # URL decode and normalize Unicode (handle Korean filenames)
         s3_key = unquote(s3_key)
+
+        if not validate_s3_key(s3_key):
+            return error_response(403, 'Invalid s3_key')
+
         s3_key_nfc = unicodedata.normalize('NFC', s3_key)
         s3_key_nfd = unicodedata.normalize('NFD', s3_key)
 
@@ -92,7 +104,7 @@ def handle_get(event):
 
     except Exception as e:
         print(f"Error generating presigned URL: {e}")
-        return error_response(500, str(e))
+        return error_response(500, 'Internal server error')
 
 
 def handle_delete(event):
@@ -107,6 +119,10 @@ def handle_delete(event):
 
         # URL decode and normalize Unicode (handle Korean filenames)
         s3_key = unquote(s3_key)
+
+        if not validate_s3_key(s3_key):
+            return error_response(403, 'Invalid s3_key')
+
         s3_key_nfc = unicodedata.normalize('NFC', s3_key)
         s3_key_nfd = unicodedata.normalize('NFD', s3_key)
 
@@ -132,22 +148,23 @@ def handle_delete(event):
                 if e.response['Error']['Code'] != '404':
                     print(f"Error deleting input image {key_variant}: {e}")
 
-        # Delete output folder if job_id and user_id are available
+        # Delete entire job folder if job_id and user_id are available
         if job_id and user_id:
-            output_prefix = f"output/{user_id}/{job_id}/"
+            output_prefix = f"{user_id}/{job_id}/"
             try:
-                # List all objects with this prefix
-                response = s3_client.list_objects_v2(
-                    Bucket=BUCKET_NAME,
-                    Prefix=output_prefix
-                )
-
-                if 'Contents' in response:
-                    for obj in response['Contents']:
+                paginator = s3_client.get_paginator('list_objects_v2')
+                for page in paginator.paginate(Bucket=BUCKET_NAME, Prefix=output_prefix):
+                    for obj in page.get('Contents', []):
                         s3_client.delete_object(Bucket=BUCKET_NAME, Key=obj['Key'])
                         deleted_objects.append(obj['Key'])
             except Exception as e:
-                print(f"Error deleting output folder {output_prefix}: {e}")
+                print(f"Error deleting job folder {output_prefix}: {e}")
+
+            # Remove job from DuckDB metadata
+            try:
+                db_utils.delete_job(user_id, job_id)
+            except Exception as e:
+                print(f"Error deleting job metadata: {e}")
 
         return {
             'statusCode': 200,
@@ -160,7 +177,7 @@ def handle_delete(event):
 
     except Exception as e:
         print(f"Error deleting S3 objects: {e}")
-        return error_response(500, str(e))
+        return error_response(500, 'Internal server error')
 
 
 def cors_headers():
