@@ -234,7 +234,7 @@ logGroupName=$(echo $buildDetail | jq -r '.groupName')
 logStreamName=$(echo $buildDetail | jq -r '.streamName')
 
 # Get values directly from CloudFormation
-frontendDomain=$(aws cloudformation describe-stacks --stack-name PaddleOCR-Application --query 'Stacks[0].Outputs[?contains(OutputKey,`DistributionDomainName`)].OutputValue' --output text 2>/dev/null)
+frontendDomain=$(aws cloudformation describe-stacks --stack-name PaddleOCR-Frontend --query 'Stacks[0].Outputs[?contains(OutputKey,`DistributionDomainName`)].OutputValue' --output text 2>/dev/null)
 frontendUrl="https://${frontendDomain}"
 
 # Password is TempPass123! for new users
