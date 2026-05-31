@@ -167,11 +167,11 @@ DOCKERFILE_EOF`,
         'CodeBuild Project Name - Run this to build the Docker image',
     });
 
-    // Lambda function to trigger CodeBuild and wait for completion
+    // Lambda function to trigger CodeBuild (start only, no waiting)
     const buildTriggerLambda = new Function(this, 'BuildTriggerLambda', {
       runtime: Runtime.PYTHON_3_14,
-      handler: 'index.handler',
-      timeout: Duration.minutes(15),
+      handler: 'on_event.handler',
+      timeout: Duration.seconds(60),
       code: Code.fromAsset(props.buildTriggerLambdaPath),
     });
 
@@ -183,9 +183,27 @@ DOCKERFILE_EOF`,
       }),
     );
 
-    // Create Custom Resource Provider
+    // Lambda function to check CodeBuild status (called periodically by Step Functions)
+    const isCompleteLambda = new Function(this, 'IsCompleteLambda', {
+      runtime: Runtime.PYTHON_3_14,
+      handler: 'is_complete.handler',
+      timeout: Duration.seconds(60),
+      code: Code.fromAsset(props.buildTriggerLambdaPath),
+    });
+
+    isCompleteLambda.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['codebuild:BatchGetBuilds'],
+        resources: [this.buildProject.projectArn],
+      }),
+    );
+
+    // Create Custom Resource Provider with async isComplete pattern
     const buildTriggerProvider = new Provider(this, 'BuildTriggerProvider', {
       onEventHandler: buildTriggerLambda,
+      isCompleteHandler: isCompleteLambda,
+      queryInterval: Duration.seconds(30),
+      totalTimeout: Duration.minutes(60),
     });
 
     // Custom Resource that triggers the build only when Dockerfile changes
