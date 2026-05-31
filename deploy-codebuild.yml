@@ -199,24 +199,29 @@ Resources:
                 - echo "Deploying ModelStack..."
                 - npx cdk deploy PaddleOCR-Model --require-approval never
 
-                # Deploy ApplicationStack (Cognito, SageMaker, API, Frontend)
-                - |
-                  echo "Deploying ApplicationStack..."
-                  npx cdk deploy PaddleOCR-Application \
-                    --require-approval never \
-                    --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                    --context instanceType="$INSTANCE_TYPE"
+                # Deploy remaining stacks (Identity, Endpoint, Api, Frontend)
+                - echo "Deploying IdentityStack..."
+                - npx cdk deploy PaddleOCR-Identity --require-approval never --context adminUserEmail="$ADMIN_USER_EMAIL"
+
+                - echo "Deploying EndpointStack..."
+                - npx cdk deploy PaddleOCR-Endpoint --require-approval never --context instanceType="$INSTANCE_TYPE"
+
+                - echo "Deploying ApiStack..."
+                - npx cdk deploy PaddleOCR-Api --require-approval never
+
+                - echo "Deploying FrontendStack..."
+                - npx cdk deploy PaddleOCR-Frontend --require-approval never --context adminUserEmail="$ADMIN_USER_EMAIL" --context instanceType="$INSTANCE_TYPE"
 
                 # Get outputs
                 - |
                   FRONTEND_DOMAIN=$(aws cloudformation describe-stacks \
-                    --stack-name PaddleOCR-Application \
+                    --stack-name PaddleOCR-Frontend \
                     --query 'Stacks[0].Outputs[?contains(OutputKey,`DistributionDomainName`)].OutputValue' \
                     --output text 2>/dev/null || echo "")
                   FRONTEND_URL="https://${FRONTEND_DOMAIN}"
 
                   USER_POOL_ID=$(aws cloudformation describe-stacks \
-                    --stack-name PaddleOCR-Application \
+                    --stack-name PaddleOCR-Identity \
                     --query "Stacks[0].Outputs[?contains(OutputKey,'UserPoolId') && !contains(OutputKey,'Client')].OutputValue" \
                     --output text 2>/dev/null | awk '{print $1}')
 
