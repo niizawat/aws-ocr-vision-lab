@@ -31,8 +31,9 @@ export interface OcrImageBuilderProps {
 }
 
 // Dockerfile content - change this to trigger rebuild
-const DOCKERFILE_CONTENT = `# PaddleOCR-VL Docker Image for AWS SageMaker
-FROM 763104351884.dkr.ecr.ap-northeast-2.amazonaws.com/pytorch-inference:2.2.0-gpu-py310-cu118-ubuntu20.04-sagemaker
+// Note: BASE_IMAGE_REGION placeholder is replaced at build time with the actual region
+const DOCKERFILE_CONTENT_TEMPLATE = `# PaddleOCR-VL Docker Image for AWS SageMaker
+FROM 763104351884.dkr.ecr.{{REGION}}.amazonaws.com/pytorch-inference:2.2.0-gpu-py310-cu118-ubuntu20.04-sagemaker
 
 WORKDIR /opt/ml/code
 ENV PADDLEOCR_HOME=/opt/ml/code/.paddleocr
@@ -69,10 +70,16 @@ export class OcrImageBuilder extends Construct {
     const region = Stack.of(this).region;
     const account = Stack.of(this).account;
 
+    // Replace region placeholder in Dockerfile template
+    const dockerfileContent = DOCKERFILE_CONTENT_TEMPLATE.replace(
+      '{{REGION}}',
+      region,
+    );
+
     // Calculate hash of Dockerfile for change detection
     const dockerfileHash = crypto
       .createHash('md5')
-      .update(DOCKERFILE_CONTENT)
+      .update(dockerfileContent)
       .digest('hex')
       .substring(0, 8);
 
@@ -110,7 +117,7 @@ export class OcrImageBuilder extends Construct {
             commands: [
               'echo Building Docker image...',
               `cat > Dockerfile << 'DOCKERFILE_EOF'
-${DOCKERFILE_CONTENT}
+${dockerfileContent}
 DOCKERFILE_EOF`,
               'cat Dockerfile',
               `docker build -t ${repositoryName}:latest .`,
